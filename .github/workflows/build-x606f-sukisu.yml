@@ -1,85 +1,86 @@
-name: Build X606F Kernel with SukiSU
+name: Build ARM64 Kernel
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Setup Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison flex build-essential libncurses5-dev libssl-dev \
-            ccache curl wget zip unzip tar python3 gawk
+          sudo apt-get install -y build-essential bc bison flex libssl-dev \
+            libncurses5-dev crossbuild-essential-arm64
 
-      - name: Download kernel source from Release
+      - name: Download Kernel Source
         run: |
-          echo "📥 Downloading kernel source..."
-          curl -L -o kernel.tgz https://github.com/jmfu003-web/x606f-sukisu-builder/releases/download/v1.0/kernel.tgz
-          ls -lh kernel.tgz
-
-      - name: Extract kernel source
-        run: |
-          mkdir kernel
-          if [[ -f kernel.tgz ]]; then
-            echo "📦 Extracting TGZ..."
-            tar -xvf kernel.tgz -C kernel --strip-components=1 || (echo "⚠️ Fallback: listing archive" && tar -tvf kernel.tgz)
-          elif [[ -f kernel.zip ]]; then
-            echo "📦 Extracting ZIP..."
-            unzip kernel.zip -d kernel
-          else
-            echo "❌ ERROR: No kernel archive found"
+          if [ ! -f kernel.tgz ]; then
+            echo "❌ ERROR: kernel.tgz not found in repository root"
             exit 1
           fi
+          mkdir kernel
+          tar -xzf kernel.tgz -C kernel
+          echo "✅ Extracted kernel.tgz"
+          
+          echo "📂 Directory after extraction:"
+          find kernel -maxdepth 4 -type d
 
-      - name: Show extracted structure
+      - name: Normalize Kernel Directory
         run: |
-          echo "📂 Directory tree:"
-          find kernel -maxdepth 4 -type d | sort
+          # 如果 kernel 下只有一个子目录，则提升一层
+          SUBDIR=$(find kernel -mindepth 1 -maxdepth 1 -type d | wc -l)
+          if [ "$SUBDIR" -eq 1 ]; then
+            SUBDIR_NAME=$(find kernel -mindepth 1 -maxdepth 1 -type d)
+            echo "🔍 Detected single subdir: $SUBDIR_NAME"
+            mv "$SUBDIR_NAME"/* kernel/
+          fi
+          
+          echo "📂 Directory after normalize:"
+          find kernel -maxdepth 4 -type d
 
-      - name: Detect kernel top directory (KDIR)
+      - name: Detect Kernel Top Directory
+        id: detect
         run: |
           KDIR=$(find kernel -type d -path "*/arch/arm64/configs" | head -n 1 | sed 's|/arch/arm64/configs||')
           if [ -z "$KDIR" ]; then
             echo "❌ ERROR: arch/arm64/configs not found in extracted files"
+            echo "📂 Current structure:"
+            find kernel -maxdepth 5 -type d
             exit 1
           fi
-          echo "✅ Kernel top dir: $KDIR"
+          echo "✅ Detected kernel dir: $KDIR"
           echo "KDIR=$KDIR" >> $GITHUB_ENV
 
-      - name: Detect defconfig
+      - name: Select defconfig
         run: |
-          DEFCONFIG=$(find $KDIR/arch/arm64/configs -type f -name "*defconfig" | head -n 1 | xargs basename)
+          DEFCONFIG=$(ls $KDIR/arch/arm64/configs | grep defconfig | head -n 1)
           if [ -z "$DEFCONFIG" ]; then
-            echo "❌ ERROR: No defconfig found"
+            echo "❌ ERROR: No defconfig found in $KDIR/arch/arm64/configs"
             exit 1
           fi
           echo "✅ Using defconfig: $DEFCONFIG"
           echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
 
-      - name: Build kernel
+      - name: Build Kernel
         run: |
           cd $KDIR
           export ARCH=arm64
-          export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
-          export PATH=/usr/bin:$PATH
+          
+          echo "🔨 make $DEFCONFIG"
           make $DEFCONFIG
+          
+          echo "🔨 make -j$(nproc)"
           make -j$(nproc)
 
-      - name: Package AnyKernel3
-        run: |
-          mkdir output
-          cp $KDIR/arch/arm64/boot/Image.gz-dtb output/ || echo "⚠️ Image.gz-dtb not found"
-          cp $KDIR/arch/arm64/boot/Image output/ || echo "⚠️ Image not found"
-          ls -lh output
-
-      - name: Upload artifacts
+      - name: Upload Kernel Image
         uses: actions/upload-artifact@v4
         with:
-          name: x606f-kernel
-          path: output/
+          name: kernel-build-output
+          path: |
+            ${{ env.KDIR }}/arch/arm64/boot/Image*
+            ${{ env.KDIR }}/arch/arm64/boot/dts/**/*.dtb
