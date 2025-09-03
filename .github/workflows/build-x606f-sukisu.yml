@@ -1,4 +1,4 @@
-name: Build ARM64 Kernel (Smart Detect)
+name: Build ARM64 Kernel (Auto Detect)
 
 on:
   workflow_dispatch:
@@ -16,7 +16,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential bc bison flex \
-            libssl-dev make gcc-aarch64-linux-gnu
+            libssl-dev make gcc-aarch64-linux-gnu rsync
 
       - name: Extract kernel source
         run: |
@@ -29,7 +29,7 @@ jobs:
             cp -r kernel-4.9 kernel
           else
             echo "⚠️ Using repository root as kernel source"
-            cp -r . kernel
+            rsync -a --exclude 'kernel' ./ kernel/
           fi
 
       - name: Detect kernel top directory
