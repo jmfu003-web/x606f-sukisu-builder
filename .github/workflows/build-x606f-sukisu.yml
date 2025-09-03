@@ -1,4 +1,4 @@
-name: Build Kernel
+name: Build Kernel Auto Detect Defconfig
 
 on:
   workflow_dispatch:
@@ -28,15 +28,19 @@ jobs:
         tar -xvf kernel.tgz
         ls -l
 
-    - name: Fix scripts/config missing issue
+    - name: Detect defconfig
+      id: detect
       run: |
         cd kernel
-        if [ ! -f scripts/config ]; then
-          echo "Fixing scripts/config..."
-          make olddefconfig || true
+        DEFCONFIG=$(find arch/arm64/configs -name "*_defconfig" | head -n 1 | xargs basename)
+        if [ -z "$DEFCONFIG" ]; then
+          echo "❌ No defconfig file found in arch/arm64/configs/"
+          exit 1
         fi
+        echo "✅ Found defconfig: $DEFCONFIG"
+        echo "defconfig=$DEFCONFIG" >> $GITHUB_OUTPUT
 
-    - name: Generate asm includes
+    - name: Generate asm includes (fix headers)
       run: |
         cd kernel
         mkdir -p arch/arm64/include/generated/asm
@@ -51,11 +55,12 @@ jobs:
     - name: Build kernel
       run: |
         cd kernel
-        make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- x606f_sukisu_defconfig
+        echo "Using defconfig: ${{ steps.detect.outputs.defconfig }}"
+        make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- ${{ steps.detect.outputs.defconfig }}
         make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
 
     - name: Upload build artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: kernel-build
         path: kernel/arch/arm64/boot/Image.gz
