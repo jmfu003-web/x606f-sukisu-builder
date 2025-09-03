@@ -1,4 +1,4 @@
-name: Build ARM64 Kernel
+name: Build ARM64 Kernel (Auto Detect)
 
 on:
   workflow_dispatch:
@@ -8,48 +8,57 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout repository
+      - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Set up environment
+      - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential bc bison flex libssl-dev make gcc-aarch64-linux-gnu
+          sudo apt-get install -y \
+            build-essential bc bison flex \
+            libssl-dev make gcc-aarch64-linux-gnu
 
-      - name: Set TOPDIR
+      - name: Prepare kernel source
         run: |
-          export TOPDIR=$(pwd)
-          echo "TOPDIR=$TOPDIR" >> $GITHUB_ENV
+          if [ -f kernel.tgz ]; then
+            echo "✅ Found kernel.tgz, extracting..."
+            mkdir kernel
+            tar -xf kernel.tgz -C kernel --strip-components=1
+            echo "TOPDIR=$(pwd)/kernel" >> $GITHUB_ENV
+          elif [ -d kernel-4.9 ]; then
+            echo "✅ Found kernel-4.9 directory"
+            echo "TOPDIR=$(pwd)/kernel-4.9" >> $GITHUB_ENV
+          else
+            echo "⚠️ Using repository root as kernel source"
+            echo "TOPDIR=$(pwd)" >> $GITHUB_ENV
+          fi
 
       - name: Detect defconfig
         id: detect
         run: |
           cd $TOPDIR
           if [ ! -d arch/arm64/configs ]; then
-            echo "❌ arch/arm64/configs not found"
+            echo "❌ ERROR: arch/arm64/configs not found"
             exit 1
           fi
 
           DEFCONFIG=$(find arch/arm64/configs -maxdepth 1 -name "*_defconfig" | head -n 1 | xargs basename)
           if [ -z "$DEFCONFIG" ]; then
+            echo "⚠️ No *_defconfig found, defaulting to defconfig"
             DEFCONFIG="defconfig"
           fi
 
           echo "✅ Using defconfig: $DEFCONFIG"
           echo "defconfig=$DEFCONFIG" >> $GITHUB_OUTPUT
 
-      - name: Fix permissions
-        run: |
-          cd $TOPDIR
-          chmod +x scripts/* || true
-          chmod +x scripts/config || true
-
       - name: Build kernel
         run: |
           cd $TOPDIR
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
+          echo "🏗️ Running make ${{ steps.detect.outputs.defconfig }}"
           make ${{ steps.detect.outputs.defconfig }}
+          echo "🏗️ Building kernel image"
           make -j$(nproc)
 
       - name: Upload Kernel Image
@@ -57,5 +66,4 @@ jobs:
         with:
           name: kernel-image
           path: |
-            ${{ env.TOPDIR }}/arch/arm64/boot/Image.gz*
             ${{ env.TOPDIR }}/arch/arm64/boot/Image*
