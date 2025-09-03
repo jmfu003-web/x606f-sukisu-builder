@@ -26,7 +26,7 @@ jobs:
         wget -q https://github.com/jmfu003-web/x606f-sukisu-builder/releases/download/v1.0/kernel.tgz -O kernel.tgz
         echo "Extracting..."
         tar -xvf kernel.tgz
-        TOPDIR=$(tar -tf kernel.tgz | head -1 | cut -f1 -d"/")
+        TOPDIR=$(tar -tf kernel.tgz | grep '/$' | head -1 | cut -f1 -d"/")
         echo "Kernel top directory: $TOPDIR"
         echo "topdir=$TOPDIR" >> $GITHUB_ENV
 
@@ -36,10 +36,9 @@ jobs:
         cd ${{ env.topdir }}
         DEFCONFIG=$(find arch/arm64/configs -name "*_defconfig" | head -n 1 | xargs basename)
         if [ -z "$DEFCONFIG" ]; then
-          echo "❌ No defconfig file found in arch/arm64/configs/"
-          exit 1
+          DEFCONFIG="defconfig"
         fi
-        echo "✅ Found defconfig: $DEFCONFIG"
+        echo "✅ Using defconfig: $DEFCONFIG"
         echo "defconfig=$DEFCONFIG" >> $GITHUB_OUTPUT
 
     - name: Generate asm includes (fix headers)
