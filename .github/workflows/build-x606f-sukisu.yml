@@ -11,18 +11,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install build dependencies
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential bc bison flex \
-            libssl-dev libncurses5-dev zip unzip ccache git curl wget tar python3-pip
-          pip install gdown
+          sudo apt-get install -y build-essential bc bison flex libssl-dev libncurses5-dev zip unzip ccache git wget tar
 
-      - name: Download kernel source from Google Drive
+      - name: Download kernel source from GitHub Release
         run: |
-          echo "Downloading kernel source from Google Drive..."
-          gdown --id 105hhNx0kRQwg_PB9J64mxy2_c0gINnB_ -O kernel.tgz
-          echo "Extracting kernel.tgz..."
+          echo "Downloading kernel source..."
+          wget -O kernel.tgz "https://github.com/jmfu003-web/x606f-sukisu-builder/releases/download/v1.0/kernel.tgz"
           mkdir -p kernel
           tar -xzf kernel.tgz -C kernel --strip-components=1
 
