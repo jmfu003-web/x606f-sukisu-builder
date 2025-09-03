@@ -1,0 +1,68 @@
+name: Build X606F Kernel with SukiSU
+
+on:
+  workflow_dispatch:
+    inputs:
+      KERNEL_REPO:
+        description: 'Kernel source repo URL'
+        default: 'https://github.com/MatiDEV-PL/kernel_lenovo_achilles6_row_wifi'
+      KERNEL_BRANCH:
+        description: 'Kernel branch (empty = default)'
+        default: ''
+      USE_CCACHE:
+        description: 'Enable ccache (true/false)'
+        default: 'true'
+      CLANG_VER:
+        description: 'Google Clang version tag'
+        default: 'r416183b'
+      DEFCONFIG:
+        description: 'Device defconfig (empty=auto)'
+        default: ''
+      EXTRA_MAKE_FLAGS:
+        description: 'Extra make flags'
+        default: ''
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Prepare host deps
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install git bc bison flex libssl-dev make \
+            gcc-aarch64-linux-gnu build-essential python3 rsync curl ccache unzip
+
+      - name: Prepare toolchain
+        run: |
+          bash build/scripts/prepare_toolchain.sh ${{ github.event.inputs.CLANG_VER }}
+
+      - name: Fetch sources
+        env:
+          KERNEL_REPO: ${{ github.event.inputs.KERNEL_REPO }}
+          KERNEL_BRANCH: ${{ github.event.inputs.KERNEL_BRANCH }}
+        run: |
+          bash build/scripts/fetch_sources.sh
+
+      - name: Integrate SukiSU
+        run: |
+          bash build/scripts/patch_kernel.sh
+
+      - name: Build kernel
+        env:
+          DEFCONFIG: ${{ github.event.inputs.DEFCONFIG }}
+          EXTRA_MAKE_FLAGS: ${{ github.event.inputs.EXTRA_MAKE_FLAGS }}
+          USE_CCACHE: ${{ github.event.inputs.USE_CCACHE }}
+        run: |
+          bash build/build.sh
+
+      - name: Package AnyKernel3
+        run: |
+          bash build/scripts/package_ak3.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AnyKernel3-sukisu-x606f
+          path: out/AnyKernel3-sukisu-x606f.zip

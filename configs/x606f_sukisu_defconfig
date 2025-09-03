@@ -1,0 +1,5 @@
+# Placeholder; CI will pick the first defconfig if not set.
+# You may paste your known-good defconfig here and set DEFCONFIG to this filename.
+CONFIG_KALLSYMS=y
+CONFIG_KALLSYMS_ALL=y
+CONFIG_KPROBES=y

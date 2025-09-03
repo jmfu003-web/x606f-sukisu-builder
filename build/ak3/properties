@@ -1,0 +1,5 @@
+kernel.string=SukiSU Ultra for Lenovo TB-X606F
+do.devicecheck=1
+do.modules=0
+do.cleanup=1
+is_slot_device=0
