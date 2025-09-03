@@ -1,87 +1,100 @@
-name: Build X606F Kernel (Auto Detect + Google Drive Support)
+name: Build X606F Kernel with SukiSU
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install build dependencies
+      - name: Setup Build Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential bc bison flex \
-            libssl-dev libncurses5-dev tar unzip wget curl python3-pip \
+          sudo apt-get install -y bc bison flex libssl-dev make automake \
+            autogen autoconf pkg-config git wget tar xz-utils gcc g++ \
+            build-essential ccache curl python3 python3-pip unzip \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-          pip install gdown
+          echo "✅ Build environment ready"
 
-      - name: Prepare kernel source
+      - name: Check and Extract Kernel Source
         run: |
-          if [ -f kernel.tgz ]; then
-            echo "✅ Found local kernel.tgz, extracting..."
-            mkdir kernel
-            tar -xzf kernel.tgz -C kernel
-          else
-            echo "⚠ No local kernel.tgz found. Attempting download from Google Drive..."
-            gdown "https://drive.google.com/uc?id=105hhNx0kRQwg_PB9J64mxy2_c0gINnB_"
-            mkdir kernel
-            tar -xzf kernel.tgz -C kernel || { echo "❌ Failed to extract kernel.tgz"; exit 1; }
+          if [ ! -f kernel.tgz ]; then
+            echo "❌ ERROR: kernel.tgz not found in repository root"
+            echo "Please upload kernel.tgz to this repo root or use a release URL."
+            exit 1
           fi
-          echo "📂 Extracted directory structure:"
-          find kernel -maxdepth 4 -type d | sed 's/^/  /'
+          mkdir kernel
+          tar --warning=no-unknown-keyword -xf kernel.tgz -C kernel
+          echo "✅ Extracted kernel.tgz to kernel/"
+          echo "📂 Top-level structure after extraction:"
+          ls -la kernel
 
-      - name: Normalize structure if nested
+      - name: Detect Kernel Directory (KDIR)
+        id: detect-kdir
         run: |
-          SUBDIRS=$(find kernel -mindepth 1 -maxdepth 1 -type d | wc -l)
-          if [ "$SUBDIRS" -eq 1 ]; then
-            INNER=$(find kernel -mindepth 1 -maxdepth 1 -type d)
-            echo "  ⬆ Single subdir detected: $INNER — flattening"
-            mv "$INNER"/* kernel/
-          fi
-          echo "📂 Post-normalization structure:"
-          find kernel -maxdepth 4 -type d | sed 's/^/  /'
-
-      - name: Detect kernel top directory (KDIR)
-        id: detect_kdir
-        run: |
+          echo "🔍 Searching for arch/arm64/configs ..."
           KDIR=$(find kernel -type d -path "*/arch/arm64/configs" | head -n 1 | sed 's|/arch/arm64/configs||')
           if [ -z "$KDIR" ]; then
-            echo "❌ ERROR: Cannot find arch/arm64/configs in extracted structure"
+            echo "❌ ERROR: arch/arm64/configs not found in extracted files"
+            echo "Directory tree for debug:"
+            find kernel -maxdepth 3 -type d | sed 's/^/  /'
             exit 1
           fi
-          echo "✅ Kernel source detected at: $KDIR"
+          echo "✅ Found KDIR: $KDIR"
           echo "KDIR=$KDIR" >> $GITHUB_ENV
 
-      - name: Select defconfig
-        id: detect_def
+      - name: Detect defconfig
+        id: detect-defconfig
         run: |
-          CONFIG_FILE=$(find "$KDIR/arch/arm64/configs" -maxdepth 1 -type f -name "*defconfig" | head -n 1)
-          if [ -z "$CONFIG_FILE" ]; then
-            echo "❌ ERROR: No defconfig found in $KDIR/arch/arm64/configs"
+          DEFCONFIG=$(find $KDIR/arch/arm64/configs -type f -name "*_defconfig" | head -n 1 | xargs basename)
+          if [ -z "$DEFCONFIG" ]; then
+            echo "❌ ERROR: No *_defconfig found in $KDIR/arch/arm64/configs"
+            echo "Available files:"
+            ls -la $KDIR/arch/arm64/configs || true
             exit 1
           fi
-          CONFIG=$(basename "$CONFIG_FILE")
-          echo "✅ Using defconfig: $CONFIG"
-          echo "DEFCONFIG=$CONFIG" >> $GITHUB_ENV
+          echo "✅ Using defconfig: $DEFCONFIG"
+          echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
 
-      - name: Build kernel
+      - name: Build Kernel
         run: |
           cd "$KDIR"
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
-          echo "🔨 Build started with: make $DEFCONFIG"
+          echo "🔨 Running make $DEFCONFIG"
           make "$DEFCONFIG"
-          echo "🔨 Parallel build"
-          make -j$(nproc)
 
-      - name: Upload Kernel Image
+          echo "📦 Fixing potential modules.builtin issues"
+          find drivers -name "modules.builtin" -exec rm {} \; || true
+          find drivers -type d -exec touch {}/modules.builtin \; || true
+
+          echo "🔨 Starting build with $(nproc) threads"
+          if ! make -j$(nproc); then
+            echo "⚠️ Parallel build failed, retrying in single-thread mode"
+            make
+          fi
+
+      - name: Package Kernel Image
+        run: |
+          cd "$KDIR"
+          OUTPUT_DIR="$GITHUB_WORKSPACE/output"
+          mkdir -p "$OUTPUT_DIR"
+          if [ -f arch/arm64/boot/Image.gz-dtb ]; then
+            cp arch/arm64/boot/Image.gz-dtb "$OUTPUT_DIR/"
+          elif [ -f arch/arm64/boot/Image ]; then
+            cp arch/arm64/boot/Image "$OUTPUT_DIR/"
+          else
+            echo "❌ ERROR: Kernel Image not found"
+            exit 1
+          fi
+          echo "✅ Kernel image copied to $OUTPUT_DIR"
+
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-image
-          path: |
-            ${{ env.KDIR }}/arch/arm64/boot/Image*
-            ${{ env.KDIR }}/arch/arm64/boot/Image.gz*
+          name: x606f-kernel
+          path: output/*
