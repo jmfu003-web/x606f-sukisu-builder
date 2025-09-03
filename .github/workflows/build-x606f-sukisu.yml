@@ -33,7 +33,9 @@ jobs:
 
       - name: Copy defconfig to kernel tree
         run: |
-          cp configs/x606f_sukisu_defconfig kernel/arch/arm64/configs/
+          KERNEL_DIR=$(find . -type d -path "*/arch/arm64/configs" | head -n 1 | sed 's|/arch/arm64/configs||')
+          echo "Kernel source detected at: $KERNEL_DIR"
+          cp configs/x606f_sukisu_defconfig $KERNEL_DIR/arch/arm64/configs/
 
       - name: Build kernel
         run: |
