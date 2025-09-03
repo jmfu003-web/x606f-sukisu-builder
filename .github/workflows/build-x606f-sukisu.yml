@@ -26,12 +26,14 @@ jobs:
         wget -q https://github.com/jmfu003-web/x606f-sukisu-builder/releases/download/v1.0/kernel.tgz -O kernel.tgz
         echo "Extracting..."
         tar -xvf kernel.tgz
-        ls -l
+        TOPDIR=$(tar -tf kernel.tgz | head -1 | cut -f1 -d"/")
+        echo "Kernel top directory: $TOPDIR"
+        echo "topdir=$TOPDIR" >> $GITHUB_ENV
 
     - name: Detect defconfig
       id: detect
       run: |
-        cd kernel
+        cd ${{ env.topdir }}
         DEFCONFIG=$(find arch/arm64/configs -name "*_defconfig" | head -n 1 | xargs basename)
         if [ -z "$DEFCONFIG" ]; then
           echo "❌ No defconfig file found in arch/arm64/configs/"
@@ -42,7 +44,7 @@ jobs:
 
     - name: Generate asm includes (fix headers)
       run: |
-        cd kernel
+        cd ${{ env.topdir }}
         mkdir -p arch/arm64/include/generated/asm
         for h in mman msgbuf msi mutex poll preempt resource rwsem segment \
                  sembuf serial shmbuf simd sizes socket sockios swab switch_to \
@@ -54,7 +56,7 @@ jobs:
 
     - name: Build kernel
       run: |
-        cd kernel
+        cd ${{ env.topdir }}
         echo "Using defconfig: ${{ steps.detect.outputs.defconfig }}"
         make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- ${{ steps.detect.outputs.defconfig }}
         make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
@@ -63,4 +65,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: kernel-build
-        path: kernel/arch/arm64/boot/Image.gz
+        path: ${{ env.topdir }}/arch/arm64/boot/Image.gz
