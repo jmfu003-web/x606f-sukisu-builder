@@ -1,4 +1,4 @@
-name: Build Kernel Auto Detect Defconfig
+name: Build ARM64 Kernel
 
 on:
   workflow_dispatch:
@@ -8,60 +8,56 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          build-essential bc bison flex libssl-dev \
-          gcc-aarch64-linux-gnu \
-          libncurses-dev \
-          wget curl git cpio python3 gawk
+      - name: Set up environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc bison flex libssl-dev make gcc-aarch64-linux-gnu
 
-    - name: Download kernel source
-      run: |
-        echo "Downloading kernel source from GitHub Release..."
-        wget -q https://github.com/jmfu003-web/x606f-sukisu-builder/releases/download/v1.0/kernel.tgz -O kernel.tgz
-        echo "Extracting..."
-        tar -xvf kernel.tgz
-        TOPDIR=$(tar -tf kernel.tgz | grep '/$' | head -1 | cut -f1 -d"/")
-        echo "Kernel top directory: $TOPDIR"
-        echo "topdir=$TOPDIR" >> $GITHUB_ENV
+      - name: Extract kernel source
+        run: |
+          mkdir kernel
+          tar -xf kernel.tgz -C kernel
+          export TOPDIR=$(pwd)/kernel
+          echo "TOPDIR=$TOPDIR" >> $GITHUB_ENV
 
-    - name: Detect defconfig
-      id: detect
-      run: |
-        cd ${{ env.topdir }}
-        DEFCONFIG=$(find arch/arm64/configs -name "*_defconfig" | head -n 1 | xargs basename)
-        if [ -z "$DEFCONFIG" ]; then
-          DEFCONFIG="defconfig"
-        fi
-        echo "✅ Using defconfig: $DEFCONFIG"
-        echo "defconfig=$DEFCONFIG" >> $GITHUB_OUTPUT
+      - name: Detect defconfig
+        id: detect
+        run: |
+          cd $TOPDIR
+          if [ ! -d arch/arm64/configs ]; then
+            echo "❌ arch/arm64/configs not found"
+            exit 1
+          fi
 
-    - name: Generate asm includes (fix headers)
-      run: |
-        cd ${{ env.topdir }}
-        mkdir -p arch/arm64/include/generated/asm
-        for h in mman msgbuf msi mutex poll preempt resource rwsem segment \
-                 sembuf serial shmbuf simd sizes socket sockios swab switch_to \
-                 termbits termios trace_clock types unaligned user vga xor; do
-          echo "#include <asm-generic/$h.h>" > arch/arm64/include/generated/asm/$h.h
-        done
-        mkdir -p arch/arm64/include/generated/uapi/asm
-        echo "#include <asm-generic/kvm_para.h>" > arch/arm64/include/generated/uapi/asm/kvm_para.h
+          DEFCONFIG=$(find arch/arm64/configs -maxdepth 1 -name "*_defconfig" | head -n 1 | xargs basename)
+          if [ -z "$DEFCONFIG" ]; then
+            DEFCONFIG="defconfig"
+          fi
 
-    - name: Build kernel
-      run: |
-        cd ${{ env.topdir }}
-        echo "Using defconfig: ${{ steps.detect.outputs.defconfig }}"
-        make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- ${{ steps.detect.outputs.defconfig }}
-        make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
+          echo "✅ Using defconfig: $DEFCONFIG"
+          echo "defconfig=$DEFCONFIG" >> $GITHUB_OUTPUT
 
-    - name: Upload build artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: kernel-build
-        path: ${{ env.topdir }}/arch/arm64/boot/Image.gz
+      - name: Fix permissions
+        run: |
+          cd $TOPDIR
+          chmod +x scripts/* || true
+          chmod +x scripts/config || true
+
+      - name: Build kernel
+        run: |
+          cd $TOPDIR
+          export ARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          make ${{ steps.detect.outputs.defconfig }}
+          make -j$(nproc)
+
+      - name: Upload Kernel Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-image
+          path: |
+            ${{ env.TOPDIR }}/arch/arm64/boot/Image.gz*
+            ${{ env.TOPDIR }}/arch/arm64/boot/Image*
