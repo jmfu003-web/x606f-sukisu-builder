@@ -15,13 +15,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential bc bison flex \
-            libssl-dev libncurses5-dev zip unzip ccache git curl wget tar
+            libssl-dev libncurses5-dev zip unzip ccache git curl wget tar python3-pip
+          pip install gdown
 
       - name: Download kernel source from Google Drive
         run: |
           echo "Downloading kernel source from Google Drive..."
-          curl -L -o kernel.tgz "https://drive.google.com/uc?export=download&id=105hhNx0kRQwg_PB9J64mxy2_c0gINnB_"
-          echo "Extracting..."
+          gdown --id 105hhNx0kRQwg_PB9J64mxy2_c0gINnB_ -O kernel.tgz
+          echo "Extracting kernel.tgz..."
           mkdir -p kernel
           tar -xzf kernel.tgz -C kernel --strip-components=1
 
