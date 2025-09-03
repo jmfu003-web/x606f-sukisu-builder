@@ -16,11 +16,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential bc bison flex libssl-dev make gcc-aarch64-linux-gnu
 
-      - name: Extract kernel source
+      - name: Set TOPDIR
         run: |
-          mkdir kernel
-          tar -xf kernel.tgz -C kernel
-          export TOPDIR=$(pwd)/kernel
+          export TOPDIR=$(pwd)
           echo "TOPDIR=$TOPDIR" >> $GITHUB_ENV
 
       - name: Detect defconfig
