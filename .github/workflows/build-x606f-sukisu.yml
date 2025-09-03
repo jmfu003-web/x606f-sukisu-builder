@@ -1,4 +1,4 @@
-name: Build ARM64 Kernel (Auto Detect)
+name: Build X606F Kernel with SukiSU
 
 on:
   workflow_dispatch:
@@ -6,67 +6,80 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-
     steps:
-      - name: Checkout source
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install build dependencies
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            build-essential bc bison flex \
-            libssl-dev make gcc-aarch64-linux-gnu rsync
+          sudo apt-get install -y bc bison flex build-essential libncurses5-dev libssl-dev \
+            ccache curl wget zip unzip tar python3 gawk
+
+      - name: Download kernel source from Release
+        run: |
+          echo "📥 Downloading kernel source..."
+          curl -L -o kernel.tgz https://github.com/jmfu003-web/x606f-sukisu-builder/releases/download/v1.0/kernel.tgz
+          ls -lh kernel.tgz
 
       - name: Extract kernel source
         run: |
-          if [ -f kernel.tgz ]; then
-            echo "✅ Found kernel.tgz, extracting..."
-            mkdir kernel
-            tar -xf kernel.tgz -C kernel
-          elif [ -d kernel-4.9 ]; then
-            echo "✅ Found kernel-4.9 directory"
-            cp -r kernel-4.9 kernel
+          mkdir kernel
+          if [[ -f kernel.tgz ]]; then
+            echo "📦 Extracting TGZ..."
+            tar -xvf kernel.tgz -C kernel --strip-components=1 || (echo "⚠️ Fallback: listing archive" && tar -tvf kernel.tgz)
+          elif [[ -f kernel.zip ]]; then
+            echo "📦 Extracting ZIP..."
+            unzip kernel.zip -d kernel
           else
-            echo "⚠️ Using repository root as kernel source"
-            rsync -a --exclude 'kernel' ./ kernel/
+            echo "❌ ERROR: No kernel archive found"
+            exit 1
           fi
 
-      - name: Detect kernel top directory
-        id: detectdir
+      - name: Show extracted structure
         run: |
-          KDIR=$(find kernel -type d -name "arch" -path "*/arch/arm64/configs" | head -n 1 | sed 's|/arch/arm64/configs||')
+          echo "📂 Directory tree:"
+          find kernel -maxdepth 4 -type d | sort
+
+      - name: Detect kernel top directory (KDIR)
+        run: |
+          KDIR=$(find kernel -type d -path "*/arch/arm64/configs" | head -n 1 | sed 's|/arch/arm64/configs||')
           if [ -z "$KDIR" ]; then
             echo "❌ ERROR: arch/arm64/configs not found in extracted files"
             exit 1
           fi
           echo "✅ Kernel top dir: $KDIR"
-          echo "TOPDIR=$KDIR" >> $GITHUB_ENV
+          echo "KDIR=$KDIR" >> $GITHUB_ENV
 
       - name: Detect defconfig
-        id: detect
         run: |
-          DEFCONFIG=$(find $TOPDIR/arch/arm64/configs -maxdepth 1 -name "*_defconfig" | head -n 1 | xargs basename)
+          DEFCONFIG=$(find $KDIR/arch/arm64/configs -type f -name "*defconfig" | head -n 1 | xargs basename)
           if [ -z "$DEFCONFIG" ]; then
-            echo "⚠️ No *_defconfig found, defaulting to defconfig"
-            DEFCONFIG="defconfig"
+            echo "❌ ERROR: No defconfig found"
+            exit 1
           fi
           echo "✅ Using defconfig: $DEFCONFIG"
-          echo "defconfig=$DEFCONFIG" >> $GITHUB_OUTPUT
+          echo "DEFCONFIG=$DEFCONFIG" >> $GITHUB_ENV
 
       - name: Build kernel
         run: |
-          cd $TOPDIR
+          cd $KDIR
           export ARCH=arm64
+          export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
-          echo "🏗️ Running make ${{ steps.detect.outputs.defconfig }}"
-          make ${{ steps.detect.outputs.defconfig }}
-          echo "🏗️ Building kernel image"
+          export PATH=/usr/bin:$PATH
+          make $DEFCONFIG
           make -j$(nproc)
 
-      - name: Upload Kernel Image
+      - name: Package AnyKernel3
+        run: |
+          mkdir output
+          cp $KDIR/arch/arm64/boot/Image.gz-dtb output/ || echo "⚠️ Image.gz-dtb not found"
+          cp $KDIR/arch/arm64/boot/Image output/ || echo "⚠️ Image not found"
+          ls -lh output
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: kernel-image
-          path: |
-            ${{ env.TOPDIR }}/arch/arm64/boot/Image*
+          name: x606f-kernel
+          path: output/
