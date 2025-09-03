@@ -5,17 +5,18 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Set up environment
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y git wget curl build-essential bc bison flex libncurses5-dev libssl-dev zip unzip ccache
 
-      - name: Fetch kernel source & prepare
+      - name: Fetch kernel source
         run: |
           chmod +x build/scripts/fetch_sources.sh
           bash build/scripts/fetch_sources.sh
@@ -25,11 +26,16 @@ jobs:
           chmod +x build/scripts/patch_kernel.sh
           bash build/scripts/patch_kernel.sh
 
+      - name: Prepare toolchain
+        run: |
+          chmod +x build/scripts/prepare_toolchain.sh
+          bash build/scripts/prepare_toolchain.sh
+
       - name: Build kernel
         run: |
           export ARCH=arm64
           export SUBARCH=arm64
-          export DEFCONFIG=configs/x606f_sukisu_defconfig
+          export DEFCONFIG=x606f_sukisu_defconfig
           chmod +x build/build.sh
           bash build/build.sh
 
@@ -38,9 +44,25 @@ jobs:
           chmod +x build/scripts/package_ak3.sh
           bash build/scripts/package_ak3.sh
 
+      # ✅ 上传编译产物到 GitHub Artifacts（新版 v4）
       - name: Upload build artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: x606f-sukisu-kernel
           path: output/*.zip
+
+      # ✅ 同时发布到 GitHub Releases
+      - name: Upload to GitHub Releases
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "output/*.zip"
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: "build-${{ github.run_number }}"
+          name: "X606F Kernel Build #${{ github.run_number }}"
+          body: |
+            ✅ Build completed for Lenovo X606F with SukiSU root patch.
+            - DEFCONFIG: x606f_sukisu_defconfig
+            - Toolchain: Clang/GCC (default from scripts)
+            - Output: AnyKernel3 flashable ZIP
+
 
