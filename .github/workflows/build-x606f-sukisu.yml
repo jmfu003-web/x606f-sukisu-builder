@@ -5,66 +5,66 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
 
     steps:
+      # 检出仓库
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      # 安装依赖
+      - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y git wget curl build-essential bc bison flex libncurses5-dev libssl-dev zip unzip ccache
+          sudo apt-get install -y \
+            build-essential bc bison flex libssl-dev \
+            libncurses-dev ccache git zip unzip \
+            curl wget python3
 
-      - name: Fetch kernel source
+      # 克隆内核源码
+      - name: Clone kernel source
         run: |
-          chmod +x build/scripts/fetch_sources.sh
-          bash build/scripts/fetch_sources.sh
+          git clone https://github.com/Lenovo-TB-X606F/android_kernel_lenovo_tb_x606f.git kernel
+          cd kernel
+          git checkout android-11
 
-      - name: Apply SukiSU patches
+      # 创建 arch/arm64/configs 并复制 defconfig
+      - name: Copy custom defconfig
         run: |
-          chmod +x build/scripts/patch_kernel.sh
-          bash build/scripts/patch_kernel.sh
+          mkdir -p kernel/arch/arm64/configs
+          cp configs/x606f_sukisu_defconfig kernel/arch/arm64/configs/
 
-      - name: Prepare toolchain
-        run: |
-          chmod +x build/scripts/prepare_toolchain.sh
-          bash build/scripts/prepare_toolchain.sh
-
-      - name: Copy defconfig to kernel tree
-        run: |
-          KERNEL_DIR=$(find . -type d -path "*/arch/arm64/configs" | head -n 1 | sed 's|/arch/arm64/configs||')
-          echo "Kernel source detected at: $KERNEL_DIR"
-          cp configs/x606f_sukisu_defconfig $KERNEL_DIR/arch/arm64/configs/
-
+      # 修复权限 + 执行构建
       - name: Build kernel
         run: |
+          cd kernel
+          chmod +x scripts/config || true
           export ARCH=arm64
           export SUBARCH=arm64
-          export DEFCONFIG=x606f_sukisu_defconfig
-          chmod +x build/build.sh
-          bash build/build.sh
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export PATH=$PATH:/usr/bin
+          
+          # 配置 defconfig
+          make x606f_sukisu_defconfig
 
-      - name: Package AnyKernel3 ZIP
+          # 防止 Broken pipe
+          make olddefconfig || true
+
+          # 编译内核
+          make -j$(nproc)
+
+      # 打包 AnyKernel3
+      - name: Package with AnyKernel3
         run: |
-          chmod +x build/scripts/package_ak3.sh
-          bash build/scripts/package_ak3.sh
+          cd $GITHUB_WORKSPACE
+          mkdir -p output
+          cp kernel/arch/arm64/boot/Image.gz-dtb build/ak3/
+          cd build/ak3
+          zip -r9 $GITHUB_WORKSPACE/output/X606F-SukiSU-Kernel.zip ./*
 
-      - name: Upload build artifact
+      # 上传构建结果
+      - name: Upload Kernel Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: x606f-sukisu-kernel
-          path: output/*.zip
-
-      - name: Upload to GitHub Releases
-        uses: ncipollo/release-action@v1
-        with:
-          artifacts: "output/*.zip"
-          token: ${{ secrets.GITHUB_TOKEN }}
-          tag: "build-${{ github.run_number }}"
-          name: "X606F Kernel Build #${{ github.run_number }}"
-          body: |
-            ✅ Build completed for Lenovo X606F with SukiSU root patch.
-            - DEFCONFIG: x606f_sukisu_defconfig
-            - Toolchain: Clang/GCC (default from scripts)
-            - Output: AnyKernel3 flashable ZIP
+          name: X606F-SukiSU-Kernel
+          path: output/X606F-SukiSU-Kernel.zip
