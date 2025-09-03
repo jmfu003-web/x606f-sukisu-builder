@@ -1,4 +1,4 @@
-name: Build ARM64 Kernel (Auto Detect)
+name: Build ARM64 Kernel (Smart Detect)
 
 on:
   workflow_dispatch:
@@ -18,36 +18,39 @@ jobs:
             build-essential bc bison flex \
             libssl-dev make gcc-aarch64-linux-gnu
 
-      - name: Prepare kernel source
+      - name: Extract kernel source
         run: |
           if [ -f kernel.tgz ]; then
             echo "✅ Found kernel.tgz, extracting..."
             mkdir kernel
-            tar -xf kernel.tgz -C kernel --strip-components=1
-            echo "TOPDIR=$(pwd)/kernel" >> $GITHUB_ENV
+            tar -xf kernel.tgz -C kernel
           elif [ -d kernel-4.9 ]; then
             echo "✅ Found kernel-4.9 directory"
-            echo "TOPDIR=$(pwd)/kernel-4.9" >> $GITHUB_ENV
+            cp -r kernel-4.9 kernel
           else
             echo "⚠️ Using repository root as kernel source"
-            echo "TOPDIR=$(pwd)" >> $GITHUB_ENV
+            cp -r . kernel
           fi
+
+      - name: Detect kernel top directory
+        id: detectdir
+        run: |
+          KDIR=$(find kernel -type d -name "arch" -path "*/arch/arm64/configs" | head -n 1 | sed 's|/arch/arm64/configs||')
+          if [ -z "$KDIR" ]; then
+            echo "❌ ERROR: arch/arm64/configs not found in extracted files"
+            exit 1
+          fi
+          echo "✅ Kernel top dir: $KDIR"
+          echo "TOPDIR=$KDIR" >> $GITHUB_ENV
 
       - name: Detect defconfig
         id: detect
         run: |
-          cd $TOPDIR
-          if [ ! -d arch/arm64/configs ]; then
-            echo "❌ ERROR: arch/arm64/configs not found"
-            exit 1
-          fi
-
-          DEFCONFIG=$(find arch/arm64/configs -maxdepth 1 -name "*_defconfig" | head -n 1 | xargs basename)
+          DEFCONFIG=$(find $TOPDIR/arch/arm64/configs -maxdepth 1 -name "*_defconfig" | head -n 1 | xargs basename)
           if [ -z "$DEFCONFIG" ]; then
             echo "⚠️ No *_defconfig found, defaulting to defconfig"
             DEFCONFIG="defconfig"
           fi
-
           echo "✅ Using defconfig: $DEFCONFIG"
           echo "defconfig=$DEFCONFIG" >> $GITHUB_OUTPUT
 
