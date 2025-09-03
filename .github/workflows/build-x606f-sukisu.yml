@@ -8,62 +8,42 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 检出仓库
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 安装依赖
-      - name: Install build dependencies
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            build-essential bc bison flex libssl-dev \
-            libncurses-dev ccache git zip unzip \
-            curl wget python3
+          sudo apt-get install -y build-essential bc bison flex libssl-dev libncurses-dev zip unzip ccache git wget
 
-      # 克隆内核源码
-      - name: Clone kernel source
+      - name: Prepare kernel source locally
         run: |
-          git clone https://github.com/Lenovo-TB-X606F/android_kernel_lenovo_tb_x606f.git kernel
-          cd kernel
-          git checkout android-11
+          mkdir -p kernel
+          cp -r kernel_source/* kernel/
 
-      # 创建 arch/arm64/configs 并复制 defconfig
       - name: Copy custom defconfig
         run: |
           mkdir -p kernel/arch/arm64/configs
           cp configs/x606f_sukisu_defconfig kernel/arch/arm64/configs/
 
-      # 修复权限 + 执行构建
-      - name: Build kernel
+      - name: Fix permissions and build
         run: |
           cd kernel
           chmod +x scripts/config || true
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
-          export PATH=$PATH:/usr/bin
-          
-          # 配置 defconfig
           make x606f_sukisu_defconfig
-
-          # 防止 Broken pipe
           make olddefconfig || true
-
-          # 编译内核
           make -j$(nproc)
 
-      # 打包 AnyKernel3
-      - name: Package with AnyKernel3
+      - name: Package AnyKernel3
         run: |
-          cd $GITHUB_WORKSPACE
-          mkdir -p output
           cp kernel/arch/arm64/boot/Image.gz-dtb build/ak3/
           cd build/ak3
-          zip -r9 $GITHUB_WORKSPACE/output/X606F-SukiSU-Kernel.zip ./*
+          zip -r9 $GITHUB_WORKSPACE/output/X606F-SukiSU-Kernel.zip ./
 
-      # 上传构建结果
-      - name: Upload Kernel Artifact
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: X606F-SukiSU-Kernel
