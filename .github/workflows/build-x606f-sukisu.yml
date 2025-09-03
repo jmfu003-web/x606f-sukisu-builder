@@ -31,6 +31,10 @@ jobs:
           chmod +x build/scripts/prepare_toolchain.sh
           bash build/scripts/prepare_toolchain.sh
 
+      - name: Copy defconfig to kernel tree
+        run: |
+          cp configs/x606f_sukisu_defconfig kernel/arch/arm64/configs/
+
       - name: Build kernel
         run: |
           export ARCH=arm64
@@ -44,14 +48,12 @@ jobs:
           chmod +x build/scripts/package_ak3.sh
           bash build/scripts/package_ak3.sh
 
-      # ✅ 上传编译产物到 GitHub Artifacts（新版 v4）
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: x606f-sukisu-kernel
           path: output/*.zip
 
-      # ✅ 同时发布到 GitHub Releases
       - name: Upload to GitHub Releases
         uses: ncipollo/release-action@v1
         with:
@@ -64,5 +66,3 @@ jobs:
             - DEFCONFIG: x606f_sukisu_defconfig
             - Toolchain: Clang/GCC (default from scripts)
             - Output: AnyKernel3 flashable ZIP
-
-
